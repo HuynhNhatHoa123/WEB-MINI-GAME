@@ -7,6 +7,17 @@ const { Server } = require("socket.io");
 const app = express();
 const server = http.createServer(app);
 
+const path = require("path");
+
+// 1. Dùng path.join với .. để nhảy từ thư mục 'sever' ra ngoài rồi vào 'client/build'
+app.use(express.static(path.join(__dirname, "..", "client", "build"))); 
+
+// 2. Phục vụ file index.html cho mọi đường dẫn
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "client", "build", "index.html"));
+});
+
+// 3. Giữ nguyên phần Socket.io của bạn
 const io = new Server(server, {
   cors: {
     origin: "*"
@@ -201,6 +212,7 @@ io.on("connection", (socket) => {
 });
 
 // ================== RUN (Giữ nguyên) ==================
-server.listen(5000, () => {
-  console.log("Server running on 5000");
+const PORT = process.env.PORT || 5000; 
+server.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
 });

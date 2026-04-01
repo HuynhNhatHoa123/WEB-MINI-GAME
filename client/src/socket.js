@@ -1,5 +1,7 @@
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:5000");
+// Khi để trống hoặc dùng window.location.origin, 
+// Socket sẽ tự tìm đến địa chỉ của trang web hiện tại
+const socket = io(); 
 
 export default socket;
