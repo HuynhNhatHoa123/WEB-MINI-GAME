@@ -13,10 +13,9 @@ const path = require("path");
 app.use(express.static(path.join(__dirname, "..", "client", "build"))); 
 
 // 2. Phục vụ file index.html cho mọi đường dẫn
-app.get("*", (req, res) => {
+app.get("(.*)", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "client", "build", "index.html"));
 });
-
 // 3. Giữ nguyên phần Socket.io của bạn
 const io = new Server(server, {
   cors: {
