@@ -36,3 +36,31 @@
     transform: rotate(360deg);
   }
 }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Nền cầu vồng chuyển động mượt mà */
+.rainbow-bg {
+  background: linear-gradient(-45deg, #0f172a, #334155, #701a75, #4c1d95);
+  background-size: 400% 400%;
+  animation: gradient 15s ease infinite;
+}
+
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Hiệu ứng kính mờ */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+}
+
+/* Nút phát sáng */
+.glow-btn:hover {
+  box-shadow: 0 0 20px rgba(236, 72, 153, 0.6);
+}

@@ -1,26 +1,80 @@
+
 console.log("FILE SERVER STARTED");
 
 require("dotenv").config();
-
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const path = require("path");
+const bcrypt = require("bcryptjs");
+const cors = require("cors"); // THÊM DÒNG NÀY
 
 const app = express();
 const server = http.createServer(app);
 
+// MIDDLEWARE (PHẢI CÓ)
+app.use(cors()); 
+app.use(express.json()); 
+
 // ================== MONGODB ==================
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log("MongoDB connected");
-  })
-  .catch((err) => {
-    console.log("MongoDB error:", err);
-  });
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((err) => console.log("❌ MongoDB error:", err));
 
+// ================== USER MODEL (PHẢI ĐẶT TRÊN API) ==================
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, default: "user" }
+});
+
+const User = mongoose.model("User", userSchema); // DI CHUYỂN LÊN ĐÂY
+
+// ================== API ROUTES ==================
+
+// API Đăng ký
+app.post("/api/register", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: "Thiếu thông tin!" });
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ username, password: hashedPassword });
+    await newUser.save();
+    res.json({ message: "Đăng ký thành công!" });
+  } catch (error) {
+    res.status(400).json({ error: "Tên đăng nhập đã tồn tại hoặc lỗi hệ thống!" });
+  }
+});
+
+// API Đăng nhập
+app.post("/api/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ error: "Sai tài khoản hoặc mật khẩu" });
+    }
+    res.json({ username: user.username, role: user.role, message: "Đăng nhập thành công!" });
+  } catch (error) {
+    res.status(500).json({ error: "Lỗi đăng nhập!" });
+  }
+});
+
+// API Lấy danh sách user (Admin)
+app.get("/api/users", async (req, res) => {
+    try {
+        const users = await User.find({}, "-password");
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: "Lỗi lấy danh sách user" });
+    }
+});
+
+// ... (Các phần STATIC CLIENT và SOCKET.IO giữ nguyên bên dưới)
+//phan nay hoan hao roi
 // ================== STATIC CLIENT ==================
 app.use(express.static(path.join(__dirname, "..", "client", "build")));
 
