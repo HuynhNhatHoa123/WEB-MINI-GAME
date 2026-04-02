@@ -79,7 +79,7 @@ app.get("/api/users", async (req, res) => {
 app.use(express.static(path.join(__dirname, "..", "client", "build")));
 
 app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "client", "build", "index.html"));
+  res.sendFile(path.join(__dirname, ".", "client", "build", "index.html"));
 });
 
 // ================== SOCKET.IO ==================
