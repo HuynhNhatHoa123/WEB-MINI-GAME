@@ -1,63 +1,82 @@
 console.log("FILE SERVER STARTED");
 
+require("dotenv").config();
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const mongoose = require("mongoose");
+const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
 
-const path = require("path");
+// ================== MONGODB ==================
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => {
+    console.log("MongoDB connected");
+  })
+  .catch((err) => {
+    console.log("MongoDB error:", err);
+  });
 
-// 1. Dùng path.join với .. để nhảy từ thư mục 'sever' ra ngoài rồi vào 'client/build'
-app.use(express.static(path.join(__dirname, "..", "client", "build"))); 
+// ================== STATIC CLIENT ==================
+app.use(express.static(path.join(__dirname, "..", "client", "build")));
 
-// 2. Phục vụ file index.html cho mọi đường dẫn
 app.get("/:path*", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "client", "build", "index.html"));
 });
-// 3. Giữ nguyên phần Socket.io của bạn
+
+// ================== SOCKET.IO ==================
 const io = new Server(server, {
   cors: {
-    origin: "*"
-  }
+    origin: "*",
+  },
 });
 
 // ================== DATA ==================
-let waitingUsers = [];       // chat random (Giữ nguyên)
-let waitingBilliard = [];    // billiard (Giữ nguyên)
-let werewolfRooms = {};      // DATA MỚI: Quản lý các phòng Ma Sói 10 người
+let waitingUsers = [];
+let waitingBilliard = [];
+let werewolfRooms = {};
 
-// Hàm tiện ích hỗ trợ lấy danh sách User (Dùng cho cả Global và Werewolf)
+// Hàm lấy danh sách user trong room
 const getRoomUsersData = (roomName) => {
   const clients = io.sockets.adapter.rooms.get(roomName) || new Set();
-  return Array.from(clients).map(id => {
+
+  return Array.from(clients).map((id) => {
     const s = io.sockets.sockets.get(id);
-    return { id, username: s?.username || "Unknown" };
+    return {
+      id,
+      username: s?.username || "Unknown",
+    };
   });
 };
 
-// ================== SOCKET ==================
+// ================== SOCKET EVENTS ==================
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
-  // ================== JOIN (Giữ nguyên) ==================
+  // ===== JOIN =====
   socket.on("join", (username) => {
     socket.username = username;
     console.log("User name:", username);
   });
 
-  // ================== RANDOM CHAT (Giữ nguyên) ==================
+  // ===== RANDOM CHAT =====
   socket.on("joinRandom", () => {
     if (waitingUsers.length > 0) {
       const partner = waitingUsers.pop();
       const room = "room_" + Date.now();
+
       socket.join(room);
       partner.join(room);
+
       console.log("Matched Chat:", socket.username, partner.username);
+
       io.to(room).emit("matched", {
-        room: room,
-        users: [socket.username, partner.username]
+        room,
+        users: [socket.username, partner.username],
       });
     } else {
       waitingUsers.push(socket);
@@ -65,39 +84,61 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ================== CHAT MESSAGE (Giữ nguyên) ==================
   socket.on("message", ({ room, user, message }) => {
     io.to(room).emit("message", { user, message });
   });
 
-  // ================== 🎱 BILLIARD (Giữ nguyên) ==================
+  // ===== BILLIARD =====
   socket.on("findBilliard", (player) => {
     console.log("🎱 Tìm billiard:", player);
-    const match = waitingBilliard.find((p) => p.level === player.level && p.bet === player.bet);
+
+    const match = waitingBilliard.find(
+      (p) => p.level === player.level && p.bet === player.bet
+    );
+
     if (match) {
       console.log("🎱 MATCH:", player.username, match.username);
+
       const room = "billiard_" + Date.now();
+
       socket.join(room);
       io.sockets.sockets.get(match.id)?.join(room);
-      io.to(match.id).emit("billiardMatched", { opponent: player.username, room });
-      socket.emit("billiardMatched", { opponent: match.username, room });
+
+      io.to(match.id).emit("billiardMatched", {
+        opponent: player.username,
+        room,
+      });
+
+      socket.emit("billiardMatched", {
+        opponent: match.username,
+        room,
+      });
+
       waitingBilliard = waitingBilliard.filter((p) => p.id !== match.id);
     } else {
-      waitingBilliard.push({ id: socket.id, username: player.username, level: player.level, bet: player.bet });
+      waitingBilliard.push({
+        id: socket.id,
+        username: player.username,
+        level: player.level,
+        bet: player.bet,
+      });
+
       console.log("🎱 Đang chờ:", player.username);
     }
   });
 
-  // ================== 🌍 GLOBAL CHAT (Bổ sung mới) ==================
+  // ===== GLOBAL CHAT =====
   socket.on("joinGlobal", (username) => {
     socket.username = username;
     socket.join("global_room");
 
     const users = getRoomUsersData("global_room");
+
     io.to("global_room").emit("globalUsers", users);
+
     io.to("global_room").emit("globalMessage", {
       user: "System",
-      message: `${username} đã tham gia Global Chat`
+      message: `${username} đã tham gia Global Chat`,
     });
   });
 
@@ -107,48 +148,49 @@ io.on("connection", (socket) => {
 
   socket.on("leaveGlobal", () => {
     socket.leave("global_room");
+
     const users = getRoomUsersData("global_room");
     io.to("global_room").emit("globalUsers", users);
   });
 
-  // ================== 🐺 WEREWOLF ROOM - 10 NGƯỜI (Bổ sung mới) ==================
+  // ===== WEREWOLF =====
   socket.on("joinWerewolfRoom", ({ username }) => {
     socket.username = username;
 
-    // Tìm phòng chưa đủ 10 người
     let targetRoom = Object.keys(werewolfRooms).find(
       (id) => werewolfRooms[id].users.length < 10
     );
 
-    // Nếu không có phòng nào trống, tạo phòng mới
     if (!targetRoom) {
       targetRoom = "werewolf_" + Date.now();
       werewolfRooms[targetRoom] = { users: [] };
     }
 
     socket.join(targetRoom);
-    werewolfRooms[targetRoom].users.push({ id: socket.id, username });
+
+    werewolfRooms[targetRoom].users.push({
+      id: socket.id,
+      username,
+    });
 
     const usersInRoom = getRoomUsersData(targetRoom);
-    const usernamesOnly = usersInRoom.map(u => u.username);
+    const usernamesOnly = usersInRoom.map((u) => u.username);
 
-    // Gửi cho người mới vào
     socket.emit("roomJoined", {
       roomID: targetRoom,
       currentCount: usernamesOnly.length,
-      users: usernamesOnly
+      users: usernamesOnly,
     });
 
-    // Cập nhật cho cả phòng
     io.to(targetRoom).emit("updateRoomStatus", {
       roomID: targetRoom,
       currentCount: usernamesOnly.length,
-      users: usernamesOnly
+      users: usernamesOnly,
     });
 
     io.to(targetRoom).emit("groupMessage", {
       user: "System",
-      message: `${username} đã vào bàn.`
+      message: `${username} đã vào bàn.`,
     });
   });
 
@@ -158,60 +200,73 @@ io.on("connection", (socket) => {
 
   socket.on("leaveWerewolfRoom", ({ roomID }) => {
     if (!roomID) return;
+
     socket.leave(roomID);
-    
+
     if (werewolfRooms[roomID]) {
-      werewolfRooms[roomID].users = werewolfRooms[roomID].users.filter(u => u.id !== socket.id);
+      werewolfRooms[roomID].users = werewolfRooms[roomID].users.filter(
+        (u) => u.id !== socket.id
+      );
+
       const usersInRoom = getRoomUsersData(roomID);
-      const usernamesOnly = usersInRoom.map(u => u.username);
+      const usernamesOnly = usersInRoom.map((u) => u.username);
 
       io.to(roomID).emit("updateRoomStatus", {
         roomID,
         currentCount: usernamesOnly.length,
-        users: usernamesOnly
+        users: usernamesOnly,
       });
 
-      if (usernamesOnly.length === 0) delete werewolfRooms[roomID];
+      if (usernamesOnly.length === 0) {
+        delete werewolfRooms[roomID];
+      }
     }
   });
 
-  // ================== LEAVE ROOM (Giữ nguyên) ==================
+  // ===== LEAVE ROOM =====
   socket.on("leaveRoom", (room) => {
     socket.leave(room);
     io.to(room).emit("billiardLeave");
   });
 
-  // ================== DISCONNECT (Cập nhật để dọn dẹp thêm Ma Sói & Global) ==================
+  // ===== DISCONNECT =====
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
 
-    // 1. Dọn dẹp Ma Sói
-    Object.keys(werewolfRooms).forEach(roomID => {
-      werewolfRooms[roomID].users = werewolfRooms[roomID].users.filter(u => u.id !== socket.id);
+    // Werewolf cleanup
+    Object.keys(werewolfRooms).forEach((roomID) => {
+      werewolfRooms[roomID].users = werewolfRooms[roomID].users.filter(
+        (u) => u.id !== socket.id
+      );
+
       const usersInRoom = getRoomUsersData(roomID);
+
       io.to(roomID).emit("updateRoomStatus", {
         roomID,
         currentCount: usersInRoom.length,
-        users: usersInRoom.map(u => u.username)
+        users: usersInRoom.map((u) => u.username),
       });
-      if (usersInRoom.length === 0) delete werewolfRooms[roomID];
+
+      if (usersInRoom.length === 0) {
+        delete werewolfRooms[roomID];
+      }
     });
 
-    // 2. Dọn dẹp Global
+    // Global cleanup
     const globalUsers = getRoomUsersData("global_room");
     io.to("global_room").emit("globalUsers", globalUsers);
 
-    // 3. Dọn dẹp Random Chat (Giữ nguyên)
-    waitingUsers = waitingUsers.filter(user => user.id !== socket.id);
+    // Random cleanup
+    waitingUsers = waitingUsers.filter((user) => user.id !== socket.id);
 
-    // 4. Dọn dẹp Billiard (Giữ nguyên)
-    waitingBilliard = waitingBilliard.filter(p => p.id !== socket.id);
+    // Billiard cleanup
+    waitingBilliard = waitingBilliard.filter((p) => p.id !== socket.id);
   });
-
 });
 
-// ================== RUN (Giữ nguyên) ==================
-const PORT = process.env.PORT || 5000; 
+// ================== RUN SERVER ==================
+const PORT = process.env.PORT || 5000;
+
 server.listen(PORT, () => {
   console.log("Server running on port " + PORT);
 });
