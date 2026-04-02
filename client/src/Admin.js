@@ -6,24 +6,32 @@ const Admin = () => {
   const [users, setUsers] = useState([]);
   const navigate = useNavigate();
 
+  // ĐỊA CHỈ API THÔNG MINH
+  const API_URL = window.location.hostname === "localhost" 
+    ? "http://localhost:5000" 
+    : "https://vpt-xi4h.onrender.com";
+
   // 1. Lấy danh sách user từ Server
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await axios.get("http://localhost:5000/api/users");
+        // Sử dụng API_URL động thay vì localhost cố định
+        const res = await axios.get(`${API_URL}/api/users`);
         setUsers(res.data);
       } catch (err) {
-        console.error("Không lấy được danh sách user");
+        console.error("Không lấy được danh sách user:", err);
+        // Nếu lỗi do chưa đăng nhập hoặc token hết hạn, có thể đá về Login
+        // navigate("/login"); 
       }
     };
     fetchUsers();
-  }, []);
+  }, [API_URL]);
 
   // 2. HÀM ĐĂNG XUẤT (QUAN TRỌNG)
   const handleLogout = () => {
-    // Xóa thông tin user khỏi bộ nhớ trình duyệt
+    // Xóa thông tin user khỏi bộ nhớ trình duyệt để bảo mật
     localStorage.removeItem("user"); 
-    // Chuyển hướng về trang đăng nhập
+    // Chuyển hướng về trang đăng nhập ngay lập tức
     navigate("/login"); 
   };
 
@@ -77,24 +85,30 @@ const Admin = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
-            {users.map((u) => (
-              <tr key={u._id} className="hover:bg-white/5 transition-colors">
-                <td className="p-5 font-bold flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-pink-500 to-violet-600 flex items-center justify-center text-[10px]">
-                    {u.username.substring(0,2).toUpperCase()}
-                  </div>
-                  {u.username}
-                </td>
-                <td className="p-5">
-                  <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${
-                    u.role === 'admin' ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50' : 'bg-blue-500/20 text-blue-500 border border-blue-500/50'
-                  }`}>
-                    {u.role}
-                  </span>
-                </td>
-                <td className="p-5 font-mono text-[10px] text-white/20 uppercase">{u._id}</td>
+            {users.length > 0 ? (
+              users.map((u) => (
+                <tr key={u._id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-5 font-bold flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-pink-500 to-violet-600 flex items-center justify-center text-[10px] text-white">
+                      {u.username ? u.username.substring(0,2).toUpperCase() : "??"}
+                    </div>
+                    {u.username}
+                  </td>
+                  <td className="p-5">
+                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${
+                      u.role === 'admin' ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50' : 'bg-blue-500/20 text-blue-500 border border-blue-500/50'
+                    }`}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="p-5 font-mono text-[10px] text-white/20 uppercase">{u._id}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="3" className="p-10 text-center text-white/20 italic">Đang tải danh sách thành viên VIP...</td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
