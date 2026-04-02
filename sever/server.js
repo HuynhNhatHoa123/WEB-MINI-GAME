@@ -78,7 +78,7 @@ app.get("/api/users", async (req, res) => {
 // ================== STATIC CLIENT ==================
 app.use(express.static(path.join(__dirname, "..", "client", "build")));
 
-app.get("/:path*", (req, res) => {
+app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "client", "build", "index.html"));
 });
 
@@ -317,6 +317,7 @@ io.on("connection", (socket) => {
     waitingBilliard = waitingBilliard.filter((p) => p.id !== socket.id);
   });
 });
+
 
 // ================== RUN SERVER ==================
 const PORT = process.env.PORT || 5000;
