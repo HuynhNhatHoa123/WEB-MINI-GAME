@@ -34,6 +34,45 @@ const User = mongoose.model("User", userSchema); // DI CHUYỂN LÊN ĐÂY
 
 // ================== API ROUTES ==================
 
+
+// API Xóa người dùng
+app.delete("/api/users/:id", async (req, res) => {
+  try {
+    const userId = req.params.id;
+    await User.findByIdAndDelete(userId);
+    res.json({ message: "Đã xóa người dùng thành công!" });
+  } catch (error) {
+    res.status(500).json({ error: "Lỗi khi xóa người dùng" });
+  }
+});
+
+// API Cập nhật (Đổi mật khẩu / Đổi quyền)
+app.put("/api/users/:id", async (req, res) => {
+  try {
+    const { password, role } = req.body;
+    const updateData = {};
+    
+    // Nếu có gửi role mới thì cập nhật role
+    if (role) updateData.role = role;
+    
+    // Nếu có gửi mật khẩu mới thì mã hóa rồi mới cập nhật
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      updateData.password = await bcrypt.hash(password, salt);
+    }
+
+    await User.findByIdAndUpdate(req.params.id, updateData);
+    res.json({ message: "Cập nhật thông tin thành công!" });
+  } catch (error) {
+    res.status(500).json({ error: "Lỗi khi cập nhật người dùng" });
+  }
+});
+
+// --- KẾT THÚC PHẦN THÊM ---
+
+
+
+
 // API Đăng ký
 app.post("/api/register", async (req, res) => {
   try {
@@ -73,14 +112,18 @@ app.get("/api/users", async (req, res) => {
     }
 });
 
-// ... (Các phần STATIC CLIENT và SOCKET.IO giữ nguyên bên dưới)
-//phan nay hoan hao roi
+
+
+
 // ================== STATIC CLIENT ==================
 app.use(express.static(path.join(__dirname, "..", "client", "build")));
 
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, ".", "client", "build", "index.html"));
 });
+
+
+
 
 // ================== SOCKET.IO ==================
 const io = new Server(server, {
@@ -91,8 +134,14 @@ const io = new Server(server, {
 
 // ================== DATA ==================
 let waitingUsers = [];
-let waitingBilliard = [];
 let werewolfRooms = {};
+let waitingBilliard = []; 
+let billiardTables = {
+  1: { busy: false, players: [], room: null },
+  2: { busy: false, players: [], room: null }
+};
+
+
 
 // Hàm lấy danh sách user trong room
 const getRoomUsersData = (roomName) => {
@@ -116,6 +165,10 @@ io.on("connection", (socket) => {
     socket.username = username;
     console.log("User name:", username);
   });
+
+
+
+
 
   // ===== RANDOM CHAT =====
   socket.on("joinRandom", () => {
@@ -142,45 +195,92 @@ io.on("connection", (socket) => {
     io.to(room).emit("message", { user, message });
   });
 
-  // ===== BILLIARD =====
-  socket.on("findBilliard", (player) => {
-    console.log("🎱 Tìm billiard:", player);
+ 
 
+// ===== BILLIARD =====
+  socket.on("findBilliard", (player) => {
+    socket.username = player.username; // Đảm bảo socket có tên
+    
+    // 1. Gửi trạng thái bàn hiện tại cho người mới vào để họ thấy "Live"
+    socket.emit("updateTables", billiardTables);
+
+    // 2. Tìm người có cùng trình độ và tiền cược trong hàng đợi
     const match = waitingBilliard.find(
       (p) => p.level === player.level && p.bet === player.bet
     );
 
     if (match) {
-      console.log("🎱 MATCH:", player.username, match.username);
+      // 3. Kiểm tra xem còn bàn nào trống không (Ưu tiên bàn 1)
+      let assignedTable = null;
+      if (!billiardTables[1].busy) assignedTable = 1;
+      else if (!billiardTables[2].busy) assignedTable = 2;
 
-      const room = "billiard_" + Date.now();
+      if (assignedTable) {
+        const room = "billiard_" + Date.now();
+        
+        // Cập nhật trạng thái bàn bận
+        billiardTables[assignedTable] = {
+          busy: true,
+          players: [match.username, player.username],
+          room: room
+        };
 
-      socket.join(room);
-      io.sockets.sockets.get(match.id)?.join(room);
+        socket.join(room);
+        const partnerSocket = io.sockets.sockets.get(match.id);
+        if (partnerSocket) partnerSocket.join(room);
 
-      io.to(match.id).emit("billiardMatched", {
-        opponent: player.username,
-        room,
-      });
+        // Gửi thông báo match kèm SỐ BÀN cho 2 người
+        io.to(match.id).emit("billiardMatched", {
+          opponent: player.username,
+          table: assignedTable,
+          room,
+        });
 
-      socket.emit("billiardMatched", {
-        opponent: match.username,
-        room,
-      });
+        socket.emit("billiardMatched", {
+          opponent: match.username,
+          table: assignedTable,
+          room,
+        });
 
-      waitingBilliard = waitingBilliard.filter((p) => p.id !== match.id);
+        // Cập nhật trạng thái bàn cho TẤT CẢ mọi người (Live Status)
+        io.emit("updateTables", billiardTables);
+
+        // Xóa người chờ khỏi hàng đợi
+        waitingBilliard = waitingBilliard.filter((p) => p.id !== match.id);
+      } else {
+        // Nếu không còn bàn trống, thông báo cho người dùng (tùy chọn)
+        socket.emit("message", { user: "System", message: "Hiện tại 2 bàn đều bận, vui lòng đợi đối thủ trước đó kết thúc." });
+      }
     } else {
+      // Đưa vào hàng đợi nếu chưa có ai khớp
       waitingBilliard.push({
         id: socket.id,
         username: player.username,
         level: player.level,
         bet: player.bet,
       });
-
-      console.log("🎱 Đang chờ:", player.username);
+      // Gửi trạng thái bàn cho người đang chờ để họ nhìn thấy live
+      io.emit("updateTables", billiardTables);
     }
   });
 
+  // MỚI: Xử lý khi người chơi ấn nút "KẾT THÚC"
+  socket.on("finishBilliard", ({ table }) => {
+    if (billiardTables[table]) {
+      const room = billiardTables[table].room;
+      
+      // Giải phóng bàn
+      billiardTables[table] = { busy: false, players: [], room: null };
+      
+      // Thông báo cho người trong room đó thoát ra
+      io.to(room).emit("billiardLeave");
+      
+      // Cập nhật trạng thái "Bàn Trống" cho toàn server thấy
+      io.emit("updateTables", billiardTables);
+      
+      console.log(`Bàn ${table} đã được giải phóng.`);
+    }
+  });
   // ===== GLOBAL CHAT =====
   socket.on("joinGlobal", (username) => {
     socket.username = username;
@@ -284,41 +384,71 @@ io.on("connection", (socket) => {
   });
 
   // ===== DISCONNECT =====
+  // ===== DISCONNECT (FULL CLEANUP) =====
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
+    const disconnectedUser = socket.username || "Unknown";
+    console.log(`🔴 User disconnected: ${disconnectedUser} (${socket.id})`);
 
-    // Werewolf cleanup
+    // 1. BILLIARD CLEANUP (Quan trọng nhất cho yêu cầu của bạn)
+    // Kiểm tra xem người vừa thoát có đang ngồi ở bàn 1 hay bàn 2 không
+    Object.keys(billiardTables).forEach((tableNum) => {
+      const table = billiardTables[tableNum];
+      if (table.players.includes(disconnectedUser)) {
+        console.log(`🎱 Giải phóng Bàn ${tableNum} do ${disconnectedUser} thoát.`);
+        
+        // Thông báo cho người còn lại trong bàn (nếu có) rằng đối thủ đã thoát
+        if (table.room) {
+          io.to(table.room).emit("billiardLeave");
+        }
+
+        // Đặt trạng thái bàn về trống
+        billiardTables[tableNum] = { busy: false, players: [], room: null };
+        
+        // Cập nhật Live Status cho tất cả người khác thấy bàn đã trống
+        io.emit("updateTables", billiardTables);
+      }
+    });
+
+    // Xóa khỏi hàng đợi tìm trận Billiard (nếu đang chờ)
+    waitingBilliard = waitingBilliard.filter((p) => p.id !== socket.id);
+
+
+    // 2. WEREWOLF CLEANUP
     Object.keys(werewolfRooms).forEach((roomID) => {
+      // Xóa user khỏi danh sách trong bộ nhớ
       werewolfRooms[roomID].users = werewolfRooms[roomID].users.filter(
         (u) => u.id !== socket.id
       );
 
       const usersInRoom = getRoomUsersData(roomID);
+      const usernamesOnly = usersInRoom.map((u) => u.username);
 
+      // Cập nhật trạng thái phòng Ma Sói cho những người còn lại
       io.to(roomID).emit("updateRoomStatus", {
         roomID,
-        currentCount: usersInRoom.length,
-        users: usersInRoom.map((u) => u.username),
+        currentCount: usernamesOnly.length,
+        users: usernamesOnly,
       });
 
-      if (usersInRoom.length === 0) {
+      // Nếu phòng không còn ai, xóa phòng để tiết kiệm RAM
+      if (usernamesOnly.length === 0) {
         delete werewolfRooms[roomID];
       }
     });
 
-    // Global cleanup
+
+    // 3. GLOBAL CHAT CLEANUP
+    // Cập nhật danh sách online ở sảnh chung
     const globalUsers = getRoomUsersData("global_room");
     io.to("global_room").emit("globalUsers", globalUsers);
 
-    // Random cleanup
+
+    // 4. RANDOM CHAT CLEANUP
+    // Xóa khỏi danh sách chờ Chat người lạ
     waitingUsers = waitingUsers.filter((user) => user.id !== socket.id);
-
-    // Billiard cleanup
-    waitingBilliard = waitingBilliard.filter((p) => p.id !== socket.id);
   });
+
 });
-
-
 // ================== RUN SERVER ==================
 const PORT = process.env.PORT || 5000;
 
