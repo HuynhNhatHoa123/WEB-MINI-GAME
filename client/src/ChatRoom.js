@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import socket from "./socket";
 
-function ChatRoom({ room, username, users, onLeave }) {
+// Lưu ý: Đổi onLeave thành leaveRoom để khớp với HomePage.js của bạn
+function ChatRoom({ room, username, users, leaveRoom }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const bottomRef = useRef(null);
+  const navigate = useNavigate();
 
+  // 1. Lắng nghe tin nhắn từ Server
   useEffect(() => {
     const handleMessage = (data) => {
       setMessages((prev) => [...prev, data]);
@@ -18,10 +22,12 @@ function ChatRoom({ room, username, users, onLeave }) {
     };
   }, []);
 
+  // 2. Tự động cuộn xuống khi có tin nhắn mới
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // 3. Hàm gửi tin nhắn
   const sendMessage = () => {
     if (!message.trim()) return;
 
@@ -34,11 +40,16 @@ function ChatRoom({ room, username, users, onLeave }) {
     setMessage("");
   };
 
+  // 4. HÀM QUAY LẠI (ĐÃ SỬA LỖI "KHÔNG ĂN")
   const handleBackHome = () => {
-    socket.emit("leaveRoom", { room, user: username });
-    // Nếu bạn dùng React Router, hãy dùng history.push('/')
-    // Ở đây tôi dùng window.location.reload() theo logic cũ của bạn nhưng bỏ confirm
-    window.location.reload(); 
+    // Gọi hàm leaveRoom truyền từ HomePage.js
+    if (leaveRoom) {
+      leaveRoom(); 
+    } else {
+      // Backup trường hợp prop bị thiếu
+      socket.emit("leaveRoom", { room, user: username });
+      navigate("/home");
+    }
   };
 
   return (
@@ -54,10 +65,10 @@ function ChatRoom({ room, username, users, onLeave }) {
         {/* HEADER */}
         <div className="px-6 py-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            {/* Nút Back */}
+            {/* Nút Quay lại */}
             <button 
               onClick={handleBackHome}
-              className="p-2 hover:bg-white/10 rounded-full transition-colors group"
+              className="p-2 hover:bg-white/10 rounded-full transition-colors group z-50"
               title="Quay lại"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5 text-gray-400 group-hover:text-white">
@@ -83,7 +94,7 @@ function ChatRoom({ room, username, users, onLeave }) {
 
           <div className="flex items-center gap-2">
              <span className="hidden sm:block text-[10px] bg-white/10 px-3 py-1 rounded-full text-gray-400">
-               {room}
+               Phòng: {room}
              </span>
           </div>
         </div>
