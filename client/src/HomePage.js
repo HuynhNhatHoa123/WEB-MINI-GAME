@@ -16,7 +16,7 @@ function HomePage() {
   const navigate = useNavigate();
 
   // Danh sách ảnh menu của bạn
-  const menuImages = ["/menu1.jpg", "/menu2.jpg", "/menu3.jpg"];
+  const menuImages = ["/menu1.jpg"];
 
   useEffect(() => {
     const storedUser = JSON.parse(localStorage.getItem("user"));
